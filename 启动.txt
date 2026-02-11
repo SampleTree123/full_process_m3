@@ -1,6 +1,21 @@
-# 所有路径都相对于 full_process_m3 目录
-# 基础目录：data_prepare（由 config/api_config.py 中 BASE_DIR 控制）
-# 外部模型目录：通过环境变量 MODELS_DIR 指定（默认为 data_prepare/../models）
+# ============================================================
+# 全景图像处理流程启动指南
+# ============================================================
+# 版本: 2.0 (优化版)
+# 更新日期: 2026-02-11
+#
+# 主要改进：
+# - ✅ 优化数据传输，减少冗余字段传递（约30-60%）
+# - ✅ 简化错误处理逻辑
+# - ✅ 合并冗余函数，代码更简洁
+# - ✅ 新增插值数量控制参数 (--num_interpolations)
+# - ✅ 统一批量超分处理
+#
+# 路径说明：
+# - 所有路径相对于 full_process_m3 目录
+# - 基础目录：data_prepare（由 config/api_config.py 中 BASE_DIR 控制）
+# - 外部模型目录：通过环境变量 MODELS_DIR 指定（默认为 data_prepare/../models）
+# ============================================================
 
 # ========================================
 # 检查服务状态
@@ -41,7 +56,24 @@ python start_services.py --action status --api_version shared_left
 # ========================================
 # 运行主程序（后台运行）
 # ========================================
-# 原版API处理（路径相对于 full_process_m3 目录）
+
+# -------------------- 参数说明 --------------------
+# --input_dirs: 输入图像文件夹（可指定多个）
+# --output_dir: 输出根目录
+# --api_version: API版本（original 或 shared_left）
+# --random_seed: 随机种子（用于可重复性）
+# --num_interpolations: 插值图像数量（默认9，新增参数！）
+#   - 4: 快速测试 (6张/对)
+#   - 9: 标准质量 (11张/对，默认)
+#   - 19: 高质量 (21张/对)
+#   - 29+: 电影级 (31+张/对)
+#
+# 处理模式（二选一）：
+# --sample_n N: 固定采样N个图片对
+# --target_n N: 持续处理直到获得N个有效yaw_interval
+# --------------------------------------------------
+
+# 示例 1: 原版API处理（标准配置，9个插值）
 nohup python main.py \
   --input_dirs \
     ../data/UE_data_first_last \
@@ -49,12 +81,13 @@ nohup python main.py \
     ../data/CVRG-Pano/all-rgb \
     ../data/360-SoD/360-SOD-tr/image \
   --target_n 10000 \
-  --random_seed  2001 \
+  --random_seed 2001 \
   --output_dir big_data_gpu0_2 \
   --api_version original \
+  --num_interpolations 9 \
   > useless_ori.log 2>&1 &
 
-# 共享左图版本API处理
+# 示例 2: 共享左图版本API处理（高质量，19个插值）
 nohup python main.py \
   --input_dirs \
     ../data/UE_data_first_last \
@@ -62,30 +95,117 @@ nohup python main.py \
     ../data/CVRG-Pano/all-rgb \
     ../data/360-SoD/360-SOD-tr/image \
   --target_n 10000 \
-  --random_seed  2002 \
+  --random_seed 2002 \
   --output_dir big_data_gpu1_2 \
   --api_version shared_left \
+  --num_interpolations 19 \
   > useless_shared_left.log 2>&1 &
+
+# 示例 3: 快速测试（固定采样，4个插值）
+# python main.py \
+#   --input_dirs ../data/test_images \
+#   --sample_n 5 \
+#   --output_dir test_output \
+#   --api_version original \
+#   --num_interpolations 4 \
+#   --random_seed 42
 
 # ========================================
 # 监控进度
 # ========================================
-# 查看处理日志
-# tail -f big_data_gpu0_2/panorama_processing.log
-# tail -f big_data_gpu1_2/panorama_processing.log
+# 查看处理日志（实时）
+tail -f big_data_gpu0_2/panorama_processing.log
+tail -f big_data_gpu1_2/panorama_processing.log
+
+# 查看API服务日志
+tail -f api_start_ori.log
+tail -f api_start_ori_gpu1.log
 
 # 查看后台任务
-# jobs
+jobs
 
 # 查看进程
-# ps aux | grep "python.*main.py"
+ps aux | grep "python.*main.py"
+ps aux | grep "python.*start_services.py"
 
 # 查看GPU使用
-# watch -n 1 nvidia-smi
+watch -n 1 nvidia-smi
+
+# 查看当前结果数量
+wc -l big_data_gpu0_2/results.json
+wc -l big_data_gpu1_2/results.json
 
 # ========================================
 # 查看结果
 # ========================================
-# ls -lh big_data_gpu0_2/results.json
-# ls -lh big_data_gpu1_2/results.json
+# 查看结果文件大小
+ls -lh big_data_gpu0_2/results.json
+ls -lh big_data_gpu1_2/results.json
 
+# 查看输出目录结构
+tree -L 2 big_data_gpu0_2/
+
+# 统计生成的图像对数量
+ls big_data_gpu0_2/group_*/preprocess/*.jpg | wc -l
+
+# 查看某个组的详细信息
+cat big_data_gpu0_2/group_0001/group_info.json | python -m json.tool
+
+# ========================================
+# 性能优化提示
+# ========================================
+# 1. 根据需求选择合适的插值数量：
+#    - 快速测试: --num_interpolations 4
+#    - 标准视频: --num_interpolations 9 (默认)
+#    - 高质量: --num_interpolations 19
+#    - 极致平滑: --num_interpolations 29+
+#
+# 2. 处理时间估算（单对图像）：
+#    - 4个插值: ~8秒
+#    - 9个插值: ~18秒
+#    - 19个插值: ~38秒
+#
+# 3. 磁盘空间估算（单对图像）：
+#    - 4个插值: ~8MB
+#    - 9个插值: ~18MB
+#    - 19个插值: ~38MB
+#
+# 4. 并行处理建议：
+#    - 使用两个GPU（original + shared_left）可并行处理
+#    - 注意磁盘I/O和内存使用
+#
+# ========================================
+# 常见问题处理
+# ========================================
+# Q: 服务启动失败？
+# A: 检查端口是否被占用，查看日志文件
+#    netstat -tulpn | grep "500[0-2]"
+#    netstat -tulpn | grep "501[0-2]"
+#
+# Q: 处理速度慢？
+# A: 1. 减少插值数量 (--num_interpolations 4)
+#    2. 检查GPU使用率 (nvidia-smi)
+#    3. 检查磁盘I/O (iostat -x 1)
+#
+# Q: 磁盘空间不足？
+# A: 1. 清理中间文件（osediff目录）
+#    2. 减少插值数量
+#    3. 使用--sample_n限制处理数量
+#
+# Q: 如何停止处理？
+# A: 1. 找到进程ID: ps aux | grep "python.*main.py"
+#    2. 终止进程: kill <PID>
+#    3. 停止API服务: python start_services.py --action stop --api_version original
+#
+# ========================================
+# 附加文档
+# ========================================
+# 详细使用说明：
+# - 插值数量参数使用说明.md
+# - 图像传递方式分析.md
+#
+# 配置文件：
+# - config/api_config.py (路径和端口配置)
+# - start_services.py (服务管理脚本)
+#
+# ========================================
