@@ -1,5 +1,6 @@
 """
-启动所有API服务的脚本
+启动所有API服务的脚本（统一版本）
+支持两个API版本：original (GPU 0) 和 shared_left (GPU 1)
 """
 
 import os
@@ -15,51 +16,74 @@ from typing import Dict, List
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 服务配置
-SERVICES = {
-    'preprocess': {
-        'script': 'api_services/preprocess.py',
-        'port': 5000,
-        'env': 'xks_precisecam',  # 使用xks_precisecam环境
-        'args': ['--port', '5000']
-    },
-    'osediff': {
-        'script': 'api_services/osediff_api.py',
-        'port': 5001,
-        'env': 'xks_OSEDiff',
-        'env_vars': {'CUDA_VISIBLE_DEVICES': '0', 'HF_ENDPOINT': 'https://hf-mirror.com'},  # 指定使用GPU 0
-        'args': [
-            '--port', '5001',
-            '--osediff_path', '/root/siton-tmp/sx/xks/51_code/data_prepare/OSEDiff/preset/models/osediff.pkl',
-            '--pretrained_model_name_or_path', '/root/siton-tmp/sx/xks/models/AI-ModelScope/stable-diffusion-2-1-base',
-            '--ram_path', '/root/siton-tmp/sx/xks/51_code/data_prepare/OSEDiff/preset/models/ram_swin_large_14m.pth',
-            '--ram_ft_path', '/root/siton-tmp/sx/xks/51_code/data_prepare/OSEDiff/preset/models/DAPE.pth',
-            '--device', 'cuda',
-            '--upscale', '2',
-            '--process_size', '512',
-            '--mixed_precision', 'fp16'
-        ]
-    },
-    'quality': {
-        'script': 'api_services/quality_api.py',
-        'port': 5002,
-        'env': 'xks_qwen',
-        'env_vars': {'CUDA_VISIBLE_DEVICES': '0'},  # 指定使用GPU 0
-        'args': [
-            '--port', '5002',
-            '--model_dir', '/root/siton-tmp/sx/xks/models/Qwen2.5-VL-7B-Instruct',
-            '--prompt_path', '/root/siton-tmp/sx/xks/51_code/data_prepare/qwen_filter/image_pair_quality_prompt.txt'
-        ]
+def get_services_config(api_version='original'):
+    """根据API版本获取服务配置
+    
+    Args:
+        api_version: 'original' (端口5000-5002, GPU 0) 或 'shared_left' (端口5010-5012, GPU 1)
+    
+    Returns:
+        服务配置字典
+    """
+    # 基础端口和GPU配置
+    if api_version == 'shared_left':
+        base_port = 5010
+        gpu_id = '1'
+        log_suffix = '_shared_left'
+    else:  # original
+        base_port = 5000
+        gpu_id = '0'
+        log_suffix = ''
+    
+    return {
+        'preprocess': {
+            'script': 'api_services/preprocess.py',
+            'port': base_port,
+            'env': 'xks_precisecam',
+            'args': ['--port', str(base_port)],
+            'log_suffix': log_suffix
+        },
+        'osediff': {
+            'script': 'api_services/osediff_api.py',
+            'port': base_port + 1,
+            'env': 'xks_OSEDiff',
+            'env_vars': {'CUDA_VISIBLE_DEVICES': gpu_id, 'HF_ENDPOINT': 'https://hf-mirror.com'},
+            'args': [
+                '--port', str(base_port + 1),
+                '--osediff_path', '/root/siton-tmp/sx/xks/51_code/data_prepare/OSEDiff/preset/models/osediff.pkl',
+                '--pretrained_model_name_or_path', '/root/siton-tmp/sx/xks/models/AI-ModelScope/stable-diffusion-2-1-base',
+                '--ram_path', '/root/siton-tmp/sx/xks/51_code/data_prepare/OSEDiff/preset/models/ram_swin_large_14m.pth',
+                '--ram_ft_path', '/root/siton-tmp/sx/xks/51_code/data_prepare/OSEDiff/preset/models/DAPE.pth',
+                '--device', 'cuda',
+                '--upscale', '2',
+                '--process_size', '512',
+                '--mixed_precision', 'fp16'
+            ],
+            'log_suffix': log_suffix
+        },
+        'quality': {
+            'script': 'api_services/quality_api.py',
+            'port': base_port + 2,
+            'env': 'xks_qwen',
+            'env_vars': {'CUDA_VISIBLE_DEVICES': gpu_id},
+            'args': [
+                '--port', str(base_port + 2),
+                '--model_dir', '/root/siton-tmp/sx/xks/models/Qwen2.5-VL-7B-Instruct',
+                '--prompt_path', '/root/siton-tmp/sx/xks/51_code/data_prepare/qwen_filter/image_pair_quality_prompt.txt'
+            ],
+            'log_suffix': log_suffix
+        }
     }
-}
 
 class ServiceManager:
     """服务管理器"""
     
-    def __init__(self, base_dir: str):
+    def __init__(self, base_dir: str, api_version: str = 'original'):
         self.base_dir = base_dir
+        self.api_version = api_version
+        self.services = get_services_config(api_version)
         self.processes: Dict[str, subprocess.Popen] = {}
-        self.log_files: Dict[str, str] = {}
+        logger.info(f"初始化服务管理器 - API版本: {api_version}")
     
     def start_service(self, service_name: str, service_config: Dict, output_dir: str) -> bool:
         """启动单个服务"""
@@ -75,9 +99,9 @@ class ServiceManager:
             # 获取环境变量
             env_vars = service_config.get('env_vars', {})
             
-            # 创建日志文件
-            log_file = os.path.join(self.base_dir, f"{service_name}_log.txt")
-            self.log_files[service_name] = log_file
+            # 创建日志文件（使用log_suffix）
+            log_suffix = service_config.get('log_suffix', '')
+            log_file = os.path.join(self.base_dir, f"{service_name}{log_suffix}_log.txt")
             
             # 构建命令
             if env == 'base':
@@ -112,13 +136,11 @@ class ServiceManager:
             logger.error(f"❌ 启动 {service_name} 服务失败: {e}")
             return False
     
-    def start_all_services(self, specific_service: str = None, output_dir: str = "output") -> Dict[str, bool]:
-        """启动所有服务或指定服务"""
+    def start_all_services(self, output_dir: str = "output") -> Dict[str, bool]:
+        """启动所有服务"""
         results = {}
         
-        services_to_start = {specific_service: SERVICES[specific_service]} if specific_service else SERVICES
-        
-        for service_name, service_config in services_to_start.items():
+        for service_name, service_config in self.services.items():
             success = self.start_service(service_name, service_config, output_dir)
             results[service_name] = success
             
@@ -146,7 +168,7 @@ class ServiceManager:
     
     def stop_all_services(self):
         """停止所有服务"""
-        for service_name in SERVICES:
+        for service_name in self.services:
             self.stop_service(service_name)
     
     def check_service_health(self, service_name: str, port: int) -> bool:
@@ -193,7 +215,7 @@ class ServiceManager:
             'quality': 60
         }
         
-        for service_name, service_config in SERVICES.items():
+        for service_name, service_config in self.services.items():
             port = service_config['port']
             
             if with_wait:
@@ -211,64 +233,42 @@ class ServiceManager:
 
 def main():
     """主函数"""
-    parser = argparse.ArgumentParser(description='API服务管理器')
+    parser = argparse.ArgumentParser(description='API服务管理器（统一版本）')
     parser.add_argument('--action', choices=['start', 'stop', 'status'], 
                        default='start', help='操作类型')
-    parser.add_argument('--service', type=str, help='指定服务名称')
     parser.add_argument('--output_dir', type=str, default='output', help='输出根目录')
+    parser.add_argument('--api_version', type=str, choices=['original', 'shared_left'], 
+                       default='original', help='API版本选择: original(端口5000-5002, GPU 0), shared_left(端口5010-5012, GPU 1)')
     args = parser.parse_args()
     
     # 获取当前目录
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    manager = ServiceManager(base_dir)
+    manager = ServiceManager(base_dir, api_version=args.api_version)
     
     if args.action == 'start':
-        if args.service:
-            logger.info(f"启动 {args.service} API服务...")
-            results = manager.start_all_services(args.service, args.output_dir)
-            
-            # 等待服务健康（带重试机制）
-            if args.service in SERVICES:
-                port = SERVICES[args.service]['port']
-                max_wait_times = {'preprocess': 30, 'osediff': 120, 'quality': 60}
-                max_wait = max_wait_times.get(args.service, 30)
-                
-                logger.info(f"等待 {args.service} 服务就绪（最长 {max_wait} 秒）...")
-                is_healthy = manager.wait_for_service_healthy(args.service, port, max_wait=max_wait)
-                
-                if is_healthy:
-                    logger.info(f"✅ {args.service} API服务启动成功并健康")
-                else:
-                    logger.error(f"❌ {args.service} API服务异常，请查看日志: {args.service}_log.txt")
-            else:
-                logger.error(f"❌ 未知服务: {args.service}")
+        logger.info(f"启动所有API服务 (版本: {args.api_version})...")
+        results = manager.start_all_services(output_dir=args.output_dir)
+        
+        # 等待所有服务健康（带重试机制）
+        logger.info("等待所有服务就绪...")
+        health_status = manager.check_all_services_health(with_wait=True)
+        
+        all_healthy = all(health_status.values())
+        if all_healthy:
+            logger.info("✅ 所有API服务启动成功并健康")
         else:
-            logger.info("启动所有API服务...")
-            results = manager.start_all_services(output_dir=args.output_dir)
-            
-            # 等待所有服务健康（带重试机制）
-            logger.info("等待所有服务就绪...")
-            health_status = manager.check_all_services_health(with_wait=True)
-            
-            all_healthy = all(health_status.values())
-            if all_healthy:
-                logger.info("✅ 所有API服务启动成功并健康")
-            else:
-                logger.error("❌ 部分API服务异常")
-                for service, is_healthy in health_status.items():
-                    if not is_healthy:
-                        logger.error(f"  - {service} 服务异常，请查看日志: {service}_log.txt")
+            logger.error("❌ 部分API服务异常")
+            log_suffix = '_shared_left' if args.api_version == 'shared_left' else ''
+            for service, is_healthy in health_status.items():
+                if not is_healthy:
+                    logger.error(f"  - {service} 服务异常，请查看日志: {service}{log_suffix}_log.txt")
     
     elif args.action == 'stop':
-        if args.service:
-            logger.info(f"停止 {args.service} 服务...")
-            manager.stop_service(args.service)
-        else:
-            logger.info("停止所有API服务...")
-            manager.stop_all_services()
+        logger.info(f"停止所有API服务 (版本: {args.api_version})...")
+        manager.stop_all_services()
     
     elif args.action == 'status':
-        logger.info("检查API服务状态...")
+        logger.info(f"检查API服务状态 (版本: {args.api_version})...")
         health_status = manager.check_all_services_health()
         
         all_healthy = all(health_status.values())

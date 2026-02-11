@@ -359,23 +359,6 @@ def health_check():
     """健康检查"""
     return jsonify({"status": "healthy", "service": "quality"})
 
-@app.route('/evaluate', methods=['POST'])
-def evaluate_single_image():
-    """评估单张图像质量"""
-    try:
-        data = request.get_json()
-        image_path = data.get('image_path')
-        
-        if not image_path:
-            return jsonify({"error": "缺少image_path参数"}), 400
-        
-        scores = evaluator.evaluate_single_image(image_path)
-        return jsonify({"success": True, "scores": scores})
-        
-    except Exception as e:
-        logger.error(f"质量评估失败: {e}")
-        return jsonify({"error": str(e)}), 500
-
 @app.route('/evaluate_pairs', methods=['POST'])
 def evaluate_pairs():
     """评估图像对质量"""
@@ -392,54 +375,6 @@ def evaluate_pairs():
         
     except Exception as e:
         logger.error(f"图像对质量评估失败: {e}")
-        return jsonify({"error": str(e)}), 500
-    
-@app.route('/batch_evaluate', methods=['POST'])
-def batch_evaluate():
-    """批量质量评估"""
-    try:
-        data = request.get_json()
-        image_paths = data.get('image_paths', [])
-        output_dir = data.get('output_dir', 'output/quality')
-        
-        if not image_paths:
-            return jsonify({"error": "缺少image_paths参数"}), 400
-        
-        results = []
-        for i, image_path in enumerate(image_paths):
-            try:
-                logger.info(f"[{i+1}/{len(image_paths)}] 评估: {image_path}")
-                scores = evaluator.evaluate_single_image(image_path)
-                results.append(scores)
-            except Exception as e:
-                logger.error(f"评估失败: {image_path} - {e}")
-                results.append({"error": str(e), "image_path": image_path})
-        
-        # 保存结果
-        if output_dir and results:
-            evaluator._save_results_to_csv(results, os.path.join(output_dir, "batch_quality_results.csv"))
-        
-        return jsonify({"success": True, "results": results})
-        
-    except Exception as e:
-        logger.error(f"批量质量评估失败: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/generate_description', methods=['POST'])
-def generate_description():
-    """为单张图像生成描述"""
-    try:
-        data = request.get_json()
-        image_path = data.get('image_path')
-        
-        if not image_path:
-            return jsonify({"error": "缺少image_path参数"}), 400
-        
-        result = evaluator.generate_image_description(image_path)
-        return jsonify({"success": True, "result": result})
-        
-    except Exception as e:
-        logger.error(f"描述生成失败: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/generate_descriptions', methods=['POST'])

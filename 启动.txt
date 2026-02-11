@@ -1,31 +1,37 @@
 # ========================================
 # 检查服务状态
 # ========================================
-python start_services.py --action status
-python start_services_shared_left.py --action status
+# 原版服务（端口5000-5002，GPU 0）
+python start_services.py --action status --api_version original
+
+# 共享左图版本服务（端口5010-5012，GPU 1）
+python start_services.py --action status --api_version shared_left
 
 # ========================================
 # 停止所有服务
 # ========================================
-python start_services.py --action stop
-python start_services_shared_left.py --action stop
+# 原版服务
+python start_services.py --action stop --api_version original
+
+# 共享左图版本服务
+python start_services.py --action stop --api_version shared_left
 
 # ========================================
 # 启动API服务（后台运行）
 # ========================================
 # 原版服务（端口5000-5002，GPU 0）
-nohup python start_services.py --action start --output_dir "/root/siton-tmp/sx/xks/51_code/data_prepare/full_process_m3/big_data_gpu0_2" > api_start_ori.log 2>&1 &
+nohup python start_services.py --action start --api_version original --output_dir "/root/siton-tmp/sx/xks/51_code/data_prepare/full_process_m3/big_data_gpu0_2" > api_start_ori.log 2>&1 &
 
 # 共享左图版本服务（端口5010-5012，GPU 1）
-nohup python start_services_shared_left.py --action start --output_dir "/root/siton-tmp/sx/xks/51_code/data_prepare/full_process_m3/big_data_gpu1_2" > api_start_ori_gpu1.log 2>&1 &
+nohup python start_services.py --action start --api_version shared_left --output_dir "/root/siton-tmp/sx/xks/51_code/data_prepare/full_process_m3/big_data_gpu1_2" > api_start_ori_gpu1.log 2>&1 &
 
 # ========================================
 # 等待服务启动（建议等待30-120秒）
 # ========================================
 # 检查服务是否启动成功
 sleep 30
-python start_services.py --action status
-python start_services_shared_left.py --action status
+python start_services.py --action status --api_version original
+python start_services.py --action status --api_version shared_left
 
 
 # ========================================

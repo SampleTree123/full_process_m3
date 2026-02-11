@@ -36,17 +36,14 @@ class PanoramaProcessor:
         self.api_version = api_version
         self.output_file = output_file
         
-        # 根据版本选择导入对应的配置
-        if api_version == "shared_left":
-            from config.api_config_shared_left import API_PORTS, API_BASE_URL
-            logger.info(f"🔄 使用共享左图版本API (端口 5010-5012, GPU 1)")
-        else:
-            from config.api_config import API_PORTS, API_BASE_URL
-            logger.info(f"🔄 使用原版API (端口 5000-5002, GPU 0)")
+        # 使用统一配置
+        from config.api_config import get_api_ports, get_gpu_id, API_BASE_URL
         
-        # 保存配置到实例变量
-        self.API_PORTS = API_PORTS
+        self.API_PORTS = get_api_ports(api_version)
         self.API_BASE_URL = API_BASE_URL
+        gpu_id = get_gpu_id(api_version)
+        
+        logger.info(f"🔄 使用 {api_version} 版本API (端口 {self.API_PORTS['preprocess']}-{self.API_PORTS['quality']}, GPU {gpu_id})")
         
         self.api_client = APIClient(API_BASE_URL)
         self.setup_output_dirs()
