@@ -157,6 +157,8 @@ class QwenQualityEvaluator:
         - yaw_interval: yaw区间
         """
         results = []
+        # csv_results = []  # 用于保存到CSV的完整结果 - 暂时不需要CSV
+        
         for i, pair_data in enumerate(pairs_data):
             image_path = pair_data.get('pair_image') or pair_data.get('super_resolved')
             
@@ -166,7 +168,8 @@ class QwenQualityEvaluator:
                 
             try:
                 scores = self.evaluate_single_image(image_path)
-                # 只保留必要字段，避免冗余数据传输
+                
+                # 用于返回给调用方的精简结果
                 result_entry = {
                     'pair_image': image_path,
                     'interval': pair_data.get('interval'),
@@ -176,15 +179,28 @@ class QwenQualityEvaluator:
                     'yaw_interval': pair_data.get('yaw_interval')
                 }
                 results.append(result_entry)
+                
+                # [已注释] 用于保存到CSV的完整结果（包含所有维度分数）
+                # csv_entry = {
+                #     'image_path': image_path,
+                #     'correlation': scores.get('correlation'),
+                #     'balance': scores.get('balance'),
+                #     'richness': scores.get('richness'),
+                #     'clarity': scores.get('clarity'),
+                #     'coherence': scores.get('coherence'),
+                #     'final_score': scores.get('final_score')
+                # }
+                # csv_results.append(csv_entry)
+                
             except Exception as e:
                 logger.error(f"评估图像对失败: {image_path} - {e}")
                 results.append({"error": str(e), "image_path": image_path})
+                # csv_results.append({"error": str(e), "image_path": image_path})
         
-        # --- [修改] 使用 self.output_dir 来构建保存路径 ---
-        if results:
-            # os.path.join 会正确处理路径，即使 self.output_dir 为空
-            csv_path = os.path.join(self.output_dir, "quality_results.csv")
-            self._save_results_to_csv(results, csv_path)
+        # [已注释] 保存CSV文件（使用完整的评估结果）
+        # if csv_results:
+        #     csv_path = os.path.join(self.output_dir, "quality_results.csv")
+        #     self._save_results_to_csv(csv_results, csv_path)
             
         return results
     

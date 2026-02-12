@@ -17,15 +17,11 @@ from config.api_config import get_path
 osediff_path = get_path('osediff_repo')
 ram_path = os.path.join(osediff_path, 'ram')
 
-# 配置日志
-log_file_path = os.path.join(full_process_dir, 'osediff_log.txt')
+# 配置日志：仅输出到 stdout，由 start_services 重定向到 logs/start/osediff_log.txt，避免在项目根目录重复写 osediff_log.txt
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_file_path, mode='w'),
-        logging.StreamHandler(sys.stdout)
-    ],
+    handlers=[logging.StreamHandler(sys.stdout)],
     force=True
 )
 logger = logging.getLogger(__name__)

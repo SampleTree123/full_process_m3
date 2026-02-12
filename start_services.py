@@ -11,7 +11,7 @@ import logging
 import argparse
 import requests
 import socket
-from typing import Dict, List
+from typing import Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 添加配置路径
@@ -90,8 +90,13 @@ class ServiceManager:
         self.base_dir = base_dir
         self.api_version = api_version
         self.services = get_services_config(api_version)
-        self.processes: Dict[str, subprocess.Popen] = {}
+        
+        # 创建logs/start目录
+        self.logs_dir = os.path.join(base_dir, 'logs', 'start')
+        os.makedirs(self.logs_dir, exist_ok=True)
+        
         logger.info(f"初始化服务管理器 - API版本: {api_version}")
+        logger.info(f"日志目录: {self.logs_dir}")
     
     def start_service(self, service_name: str, service_config: Dict, output_dir: str) -> bool:
         """启动单个服务"""
@@ -107,32 +112,31 @@ class ServiceManager:
             # 获取环境变量
             env_vars = service_config.get('env_vars', {})
             
-            # 创建日志文件（使用log_suffix）
+            # 创建日志文件（放在logs/start目录下）
             log_suffix = service_config.get('log_suffix', '')
-            log_file = os.path.join(self.base_dir, f"{service_name}{log_suffix}_log.txt")
+            log_file = os.path.join(self.logs_dir, f"{service_name}{log_suffix}_log.txt")
             
-            # 构建命令
+            # 构建命令（conda run 需加 --no-capture-output，否则会吞掉子进程 stdout/stderr，导致 *_log.txt 为空）
             if env == 'base':
                 cmd = ['python', script_path] + args
             else:
-                cmd = ['conda', 'run', '-n', env, 'python', script_path] + args
+                cmd = ['conda', 'run', '-n', env, '--no-capture-output', 'python', script_path] + args
             
             logger.info(f"启动 {service_name} 服务 (端口: {port})")
             logger.info(f"命令: {' '.join(cmd)}")
             if env_vars:
                 logger.info(f"环境变量: {env_vars}")
             
-            # 启动进程
-            with open(log_file, 'w') as f:
-                process = subprocess.Popen(
-                    cmd,
-                    stdout=f,
-                    stderr=subprocess.STDOUT,
-                    cwd=self.base_dir,
-                    env={**os.environ, **env_vars}  # 合并环境变量
-                )
+            # 启动进程：PYTHONUNBUFFERED=1 便于子进程日志实时写入；不能使用 with 关闭 log_fd，否则子进程无法写入
+            log_fd = open(log_file, 'w')
+            process = subprocess.Popen(
+                cmd,
+                stdout=log_fd,
+                stderr=subprocess.STDOUT,
+                cwd=self.base_dir,
+                env={**os.environ, 'PYTHONUNBUFFERED': '1', **env_vars}
+            )
             
-            self.processes[service_name] = process
             logger.info(f"✅ {service_name} 服务启动成功 (PID: {process.pid})")
             
             # 等待服务启动
@@ -159,23 +163,27 @@ class ServiceManager:
         return results
     
     def stop_service(self, service_name: str):
-        """停止单个服务"""
-        if service_name in self.processes:
-            process = self.processes[service_name]
-            try:
-                process.terminate()
-                process.wait(timeout=10)
-                logger.info(f"✅ {service_name} 服务已停止")
-            except subprocess.TimeoutExpired:
-                process.kill()
-                logger.warning(f"⚠️ {service_name} 服务被强制终止")
-            except Exception as e:
-                logger.error(f"❌ 停止 {service_name} 服务失败: {e}")
+        """停止单个服务（仅通过进程名+端口查找并强制停止）"""
+        service_config = self.services.get(service_name)
+        if not service_config:
+            logger.warning(f"⚠️ 未知服务: {service_name}")
+            return
+        
+        script_name = os.path.basename(service_config['script'])
+        port = service_config['port']
+        cmd = f"ps aux | grep '{script_name}' | grep 'port {port}' | grep -v grep | awk '{{print $2}}' | xargs -r kill -9"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            logger.info(f"✅ {service_name} 服务已停止")
+        elif result.returncode == 123:
+            logger.info(f"ℹ️ {service_name} 服务未在运行")
         else:
-            logger.warning(f"⚠️ 服务 {service_name} 不在当前进程列表中")
+            logger.info(f"✅ {service_name} 服务已停止")
     
     def stop_all_services(self):
         """停止所有服务"""
+        logger.info("正在停止所有服务...")
         for service_name in self.services:
             self.stop_service(service_name)
     
@@ -298,7 +306,7 @@ def main():
     
     if args.action == 'start':
         logger.info(f"启动所有API服务 (版本: {args.api_version})...")
-        results = manager.start_all_services(output_dir=args.output_dir)
+        manager.start_all_services(output_dir=args.output_dir)
         
         # 等待所有服务健康（带重试机制）
         logger.info("等待所有服务就绪...")
@@ -312,7 +320,7 @@ def main():
             log_suffix = '_shared_left' if args.api_version == 'shared_left' else ''
             for service, is_healthy in health_status.items():
                 if not is_healthy:
-                    logger.error(f"  - {service} 服务异常，请查看日志: {service}{log_suffix}_log.txt")
+                    logger.error(f"  - {service} 服务异常，请查看日志: logs/start/{service}{log_suffix}_log.txt")
     
     elif args.action == 'stop':
         logger.info(f"停止所有API服务 (版本: {args.api_version})...")

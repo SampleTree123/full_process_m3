@@ -9,8 +9,8 @@ import os
 # data_prepare 目录（full_process_m3/config/api_config.py → 上两级）
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-# 外部模型根目录（不在 data_prepare 下，通过环境变量指定）
-MODELS_DIR = os.environ.get('MODELS_DIR', os.path.join(BASE_DIR, '..', 'models'))
+# 外部模型根目录 - 修正路径指向正确的 models 目录
+MODELS_DIR = os.environ.get('MODELS_DIR', '/root/siton-tmp/sx/xks/models')
 
 # ==================== 路径配置 ====================
 PATHS = {
@@ -59,6 +59,3 @@ def get_gpu_id(version='original'):
     if version not in API_VERSIONS:
         raise ValueError(f"未知的API版本: {version}，可选: {list(API_VERSIONS.keys())}")
     return API_VERSIONS[version]['gpu']
-
-# 向后兼容
-API_PORTS = API_VERSIONS['original']['ports'] 
